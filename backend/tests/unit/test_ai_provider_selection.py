@@ -107,9 +107,9 @@ async def test_backfill_uses_single_configured_model(monkeypatch: pytest.MonkeyP
         assert services.backfill_provider._models == ["qwen2.5-coder:7b"]
 
 
-async def test_backfill_default_model_is_qwen(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Sem configuração, o backfill usa o ``qwen2.5-coder:7b``."""
-    assert _settings(monkeypatch, AI_PROVIDER="ollama").ollama_backfill_model == "qwen2.5-coder:7b"
+async def test_backfill_default_model_is_llama(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sem configuração, o backfill usa o ``llama3.1:8b`` (mesmo modelo do PM/PO, já carregado em produção)."""
+    assert _settings(monkeypatch, AI_PROVIDER="ollama").ollama_backfill_model == "llama3.1:8b"
 
 
 async def test_pm_agent_uses_its_own_configured_model(monkeypatch: pytest.MonkeyPatch) -> None:

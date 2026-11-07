@@ -75,12 +75,13 @@ async def run_enrichment(pr_id: int, *, single_model: bool = False) -> str:
                 embedder=services.embedder,
                 memory=SessionFactoryMemory(session_factory) if services.embedder is not None else None,
             )
+            # Backfill: um modelo só, sem o parecer PM/PO (evita carregar um segundo modelo por PR).
             outcome: EnrichmentOutcome = await enrich_pull_request(
                 session_factory,
                 pr_id,
                 diffs=diffs,
                 analyzer=services.backfill_provider if single_model else services.provider,
-                product_agent=pm_agent,
+                product_agent=None if single_model else pm_agent,
                 embedder=services.embedder,
             )
     finally:

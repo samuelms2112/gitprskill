@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     # Modelo do agente PM/PO (parecer de produto e consulta à memória). Separado do conselho.
     ollama_pm_model: str = "llama3.1:8b"
     # Modelo único da análise histórica (backfill de PRs antigos). Um modelo só evita carregar o conselho inteiro.
-    ollama_backfill_model: str = "qwen2.5-coder:7b"
+    ollama_backfill_model: str = "llama3.1:8b"
     ollama_embedding_model: str = "nomic-embed-text"
     ollama_timeout_seconds: float = Field(default=600.0, gt=0, le=1800)
 

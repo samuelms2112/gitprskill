@@ -1,0 +1,120 @@
+# Ambiente de desenvolvimento local: PostgreSQL 16, Redis e API FastAPI.
+# Uso: copie .env.example para .env, ajuste os valores e rode `docker compose up --build`.
+
+name: github-management
+
+services:
+  postgres:
+    # Imagem com a extensão pgvector (mesma versão 16: os dados existentes continuam válidos).
+    image: pgvector/pgvector:pg16
+    container_name: ghmgmt-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-github_management}
+      POSTGRES_USER: ${POSTGRES_USER:-ghmgmt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
+    ports:
+      # Exposto apenas em localhost para evitar acesso externo ao banco.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: ghmgmt-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ghmgmt-api
+    env_file: .env
+    # Sobrescreve as URLs do .env para apontar para os nomes de serviço da rede Docker.
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ghmgmt}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-github_management}
+      REDIS_URL: redis://redis:6379/0
+      # O login redireciona o navegador para o frontend, e o navegador é quem chama a API (CORS).
+      FRONTEND_URL: http://localhost:${FRONTEND_PORT:-3000}
+      CORS_ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT:-3000}
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    # Hot reload e montagem do código: apenas para desenvolvimento.
+    volumes:
+      - ./backend:/app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ghmgmt-worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ghmgmt}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-github_management}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+    # Consumidor Celery que processa os eventos do GitHub enfileirados pelo webhook.
+    command: ["celery", "-A", "app.core.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # IA local (custo zero, sem limite de cota). Com 16 GB de RAM, o modelo é descarregado logo após
+  # cada resposta (OLLAMA_KEEP_ALIVE=0): mais lento por chamada, mas libera a memória do computador.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ghmgmt-ollama
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_KEEP_ALIVE: "0"
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Embutida no bundle: aponta para a API como o NAVEGADOR a acessa (porta publicada no host).
+        NEXT_PUBLIC_API_URL: http://localhost:${API_PORT:-8000}
+    container_name: ghmgmt-frontend
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_models:

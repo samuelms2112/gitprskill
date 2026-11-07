@@ -1,0 +1,17 @@
+# Um domínio, HTTPS automático (Let's Encrypt). A API fica sob /api/ no mesmo domínio,
+# então o navegador não precisa de CORS para falar com ela em produção.
+{$DOMAIN} {
+	encode gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

@@ -144,7 +144,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2560M
+          # Um modelo de 7B/8B quantizado ocupa ~5 GB ao carregar; 6 GB dá folga para o contexto.
+          memory: 6144M
 
 volumes:
   postgres_data:

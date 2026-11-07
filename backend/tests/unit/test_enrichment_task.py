@@ -11,7 +11,7 @@ from app.core.celery_app import celery_app
 from app.core.config import get_settings
 from app.core.exceptions import AIRateLimitError
 from app.services.github_client import DIFF_ACCEPT_HEADER, GitHubClient
-from app.workers.tasks import enrich_pr_with_ai_task
+from app.workers.tasks import enrich_pr_with_ai_backfill_task, enrich_pr_with_ai_task
 
 DIFF = "diff --git a/app.py b/app.py\n+print('ok')\n"
 
@@ -42,11 +42,32 @@ def test_task_is_registered_with_expected_policy() -> None:
     assert "app.workers.tasks" in celery_app.conf.include
 
 
+def test_backfill_task_is_registered_separately() -> None:
+    """O backfill tem nome próprio, para não compartilhar a fila de PRs novos nem o analisador."""
+    assert enrich_pr_with_ai_backfill_task.name == "enrich_pr_with_ai_backfill"
+    assert enrich_pr_with_ai_backfill_task.acks_late is True
+
+
+def test_backfill_task_runs_in_single_model_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A tarefa de backfill chama o enriquecimento com ``single_model=True``; a de PRs novos, com False."""
+    modes: list[bool] = []
+
+    async def recording_run(pr_id: int, *, single_model: bool = False) -> str:
+        modes.append(single_model)
+        return "enriched"
+
+    monkeypatch.setattr(workers_module, "run_enrichment", recording_run)
+
+    assert enrich_pr_with_ai_backfill_task(3) == "enriched"
+    assert enrich_pr_with_ai_task(4) == "enriched"
+    assert modes == [True, False]
+
+
 def test_rate_limit_reschedules_task_after_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
     """Limite da IA reagenda a tarefa com ``countdown`` igual ao ``Retry-After`` recebido."""
     error = AIRateLimitError(retry_after=45)
 
-    async def failing_run(pr_id: int) -> str:
+    async def failing_run(pr_id: int, **_: Any) -> str:
         raise error
 
     scheduled: list[dict[str, Any]] = []

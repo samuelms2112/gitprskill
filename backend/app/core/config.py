@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     ollama_models: str = "qwen2.5-coder:7b,deepseek-r1:8b,llama3.1:8b,mistral:7b,phi3:3.8b,gemma2:9b"
     # Modelo do agente PM/PO (parecer de produto e consulta à memória). Separado do conselho.
     ollama_pm_model: str = "llama3.1:8b"
+    # Modelo único da análise histórica (backfill de PRs antigos). Um modelo só evita carregar o conselho inteiro.
+    ollama_backfill_model: str = "qwen2.5-coder:7b"
     ollama_embedding_model: str = "nomic-embed-text"
     ollama_timeout_seconds: float = Field(default=600.0, gt=0, le=1800)
 

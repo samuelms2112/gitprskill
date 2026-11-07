@@ -27,12 +27,14 @@ from app.services.ai_service import AIService
 class AIServices:
     """Serviços de IA do provedor configurado.
 
-    ``provider``: análise técnica (conselho local ou Gemini).
+    ``provider``: análise técnica dos PRs novos (conselho local ou Gemini).
+    ``backfill_provider``: análise técnica dos PRs históricos (um modelo local só; no Gemini, o mesmo ``provider``).
     ``pm_generator``: texto do agente PM/PO (modelo próprio, ou o próprio Gemini).
     ``embedder``: embeddings da memória semântica (só no modo local).
     """
 
     provider: AIProvider
+    backfill_provider: AIProvider
     pm_generator: TextGenerator
     embedder: TextEmbedder | None
 
@@ -53,8 +55,12 @@ async def open_ai_services(settings: Settings) -> AsyncIterator[AIServices]:
             embedding_model=settings.ollama_embedding_model,
         ) as client:
             engine = LocalAIConsensusEngine(client, settings.ollama_model_list, settings.gemini_max_diff_chars)
+            backfill_engine = LocalAIConsensusEngine(
+                client, [settings.ollama_backfill_model], settings.gemini_max_diff_chars
+            )
             yield AIServices(
                 provider=engine,
+                backfill_provider=backfill_engine,
                 pm_generator=OllamaTextModel(client, settings.ollama_pm_model),
                 embedder=client,
             )
@@ -70,4 +76,4 @@ async def open_ai_services(settings: Settings) -> AsyncIterator[AIServices]:
         max_diff_chars=settings.gemini_max_diff_chars,
         timeout=settings.gemini_timeout_seconds,
     ) as gemini:
-        yield AIServices(provider=gemini, pm_generator=gemini, embedder=None)
+        yield AIServices(provider=gemini, backfill_provider=gemini, pm_generator=gemini, embedder=None)

@@ -43,7 +43,7 @@ from app.services.backfill_service import (
 from app.services.github_app_auth import GitHubAppAuth
 from app.services.github_client import GitHubClient
 from app.services.sync_status import RedisSyncStatusStore, SyncStatusStore
-from app.workers.tasks import enrich_pr_with_ai_task
+from app.workers.tasks import enrich_pr_with_ai_backfill_task
 
 logger = get_logger(__name__)
 
@@ -168,12 +168,12 @@ async def _sync_one(
 
 
 def _schedule_enrichment(pull_request_ids: list[int]) -> None:
-    """Enfileira a análise de IA de cada PR novo e mergeado. Melhor esforço: falhas só são registradas."""
+    """Enfileira a análise de IA de cada PR importado pelo histórico (modelo único). Melhor esforço."""
     if not get_settings().ai_configured:
         return
     for pull_request_id in pull_request_ids:
         try:
-            enrich_pr_with_ai_task.delay(pull_request_id)
+            enrich_pr_with_ai_backfill_task.delay(pull_request_id)
         except BrokerOperationalError:
             logger.warning("Não foi possível agendar a análise de IA", extra={"pr_id": pull_request_id})
 

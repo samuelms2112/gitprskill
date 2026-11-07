@@ -38,8 +38,10 @@ SKIPPED_NO_AI_KEY = "skipped_ai_not_configured"
 SKIPPED_NO_GITHUB_APP = "skipped_github_app_not_configured"
 
 
-async def run_enrichment(pr_id: int) -> str:
+async def run_enrichment(pr_id: int, *, single_model: bool = False) -> str:
     """Cria os clientes do processo, executa o enriquecimento e libera os recursos.
+
+    ``single_model=True`` usa o analisador de modelo único (backfill de PRs históricos) em vez do conselho.
 
     Returns:
         O desfecho do enriquecimento ou um ``skipped_*`` quando a integração não está configurada.
@@ -77,7 +79,7 @@ async def run_enrichment(pr_id: int) -> str:
                 session_factory,
                 pr_id,
                 diffs=diffs,
-                analyzer=services.provider,
+                analyzer=services.backfill_provider if single_model else services.provider,
                 product_agent=pm_agent,
                 embedder=services.embedder,
             )
@@ -105,7 +107,7 @@ def _github_client_factory(base_url: str, timeout: float) -> ClientFactory:
     acks_late=True,
 )
 def enrich_pr_with_ai_task(self: Task, pr_id: int) -> str:
-    """Enriquece um PR com IA em segundo plano.
+    """Enriquece um PR novo com IA em segundo plano (conselho completo).
 
     Args:
         self: Instância da tarefa (usada para reagendar em caso de limite de taxa).
@@ -114,8 +116,34 @@ def enrich_pr_with_ai_task(self: Task, pr_id: int) -> str:
     Returns:
         Desfecho do enriquecimento.
     """
+    return _enrich_or_reschedule(self, pr_id, single_model=False)
+
+
+@celery_app.task(
+    name="enrich_pr_with_ai_backfill",
+    bind=True,
+    autoretry_for=(OperationalError,),
+    retry_backoff=True,
+    retry_jitter=True,
+    max_retries=5,
+    acks_late=True,
+)
+def enrich_pr_with_ai_backfill_task(self: Task, pr_id: int) -> str:
+    """Enriquece um PR histórico com um único modelo local (mais rápido que o conselho).
+
+    Args:
+        self: Instância da tarefa (usada para reagendar em caso de limite de taxa).
+        pr_id: ``id`` interno do PR em ``pull_requests``.
+
+    Returns:
+        Desfecho do enriquecimento.
+    """
+    return _enrich_or_reschedule(self, pr_id, single_model=True)
+
+
+def _enrich_or_reschedule(self: Task, pr_id: int, *, single_model: bool) -> str:
     try:
-        return asyncio.run(run_enrichment(pr_id))
+        return asyncio.run(run_enrichment(pr_id, single_model=single_model))
     except AIRateLimitError as exc:
         logger.warning("Limite da IA atingido; reagendando", extra={"pr_id": pr_id})
         raise self.retry(exc=exc, countdown=exc.retry_after) from exc

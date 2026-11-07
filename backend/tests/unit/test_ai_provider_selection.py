@@ -97,6 +97,21 @@ async def test_ollama_without_models_fails_explicitly(monkeypatch: pytest.Monkey
             pass
 
 
+async def test_backfill_uses_single_configured_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """O backfill usa um motor de um modelo só (``OLLAMA_BACKFILL_MODEL``), não o conselho inteiro."""
+    settings = _settings(monkeypatch, AI_PROVIDER="ollama", OLLAMA_BACKFILL_MODEL="qwen2.5-coder:7b")
+
+    async with open_ai_services(settings) as services:
+        assert isinstance(services.backfill_provider, LocalAIConsensusEngine)
+        assert services.backfill_provider is not services.provider
+        assert services.backfill_provider._models == ["qwen2.5-coder:7b"]
+
+
+async def test_backfill_default_model_is_qwen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sem configuração, o backfill usa o ``qwen2.5-coder:7b``."""
+    assert _settings(monkeypatch, AI_PROVIDER="ollama").ollama_backfill_model == "qwen2.5-coder:7b"
+
+
 async def test_pm_agent_uses_its_own_configured_model(monkeypatch: pytest.MonkeyPatch) -> None:
     """O parecer PM/PO usa ``OLLAMA_PM_MODEL``, não um modelo do conselho técnico."""
     from app.services.ai.ollama import OllamaTextModel

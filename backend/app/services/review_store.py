@@ -48,14 +48,31 @@ async def latest_rules_version(session: AsyncSession, skill_id: int) -> datetime
     )
 
 
-async def request_review(session: AsyncSession, *, tenant_id: int, pull_request_id: int) -> PullRequestAIReview:
+async def request_review(
+    session: AsyncSession, *, tenant_id: int, pull_request_id: int, trigger: str | None = None
+) -> PullRequestAIReview:
     """Registra uma revisão pendente. O card do PR passa a mostrar 'Revisando' já neste momento."""
     review = PullRequestAIReview(
         tenant_id=tenant_id,
         pull_request_id=pull_request_id,
         status=AIReviewStatus.PENDING,
         findings_count=0,
+        trigger=trigger,
     )
     session.add(review)
     await session.flush()
     return review
+
+
+async def bot_comment_ids(session: AsyncSession, pull_request_id: int) -> frozenset[int]:
+    """Ids dos comentários que a plataforma já publicou neste PR, para reconhecer respostas às threads dela."""
+    rows = await session.scalars(
+        select(PullRequestAIReview.github_comment_ids).where(
+            PullRequestAIReview.pull_request_id == pull_request_id,
+            PullRequestAIReview.github_comment_ids.is_not(None),
+        )
+    )
+    ids: set[int] = set()
+    for values in rows.all():
+        ids.update(value for value in values if isinstance(value, int))
+    return frozenset(ids)

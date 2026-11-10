@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from app.core.config import Settings, get_settings
 from app.core.exceptions import CeleryDispatchError, InvalidPayloadError
 from app.core.logging import get_logger
+from app.services.review_trigger import is_own_bot
 from app.services.webhook_security import read_body_with_limit, verify_github_signature
 from app.tasks.github_events import process_github_event
 
@@ -27,7 +28,14 @@ logger = get_logger(__name__)
 
 PING_EVENT = "ping"
 SUPPORTED_EVENTS = frozenset(
-    {"pull_request", "pull_request_review", "installation", "installation_repositories"}
+    {
+        "pull_request",
+        "pull_request_review",
+        "pull_request_review_comment",
+        "issue_comment",
+        "installation",
+        "installation_repositories",
+    }
 )
 
 
@@ -74,6 +82,9 @@ async def receive_github_webhook(
         return WebhookResponse(status="ignored", reason="unsupported_event")
 
     payload = _parse_json_object(body)
+    # Anti-loop: eventos causados pelo próprio bot da plataforma são descartados antes da fila.
+    if is_own_bot(payload.get("sender"), get_settings().github_app_slug):
+        return WebhookResponse(status="ignored", reason="own_bot")
     dispatch_github_event(event_name=event_name, delivery_id=x_github_delivery, payload=payload)
     logger.info(
         "Evento do GitHub enfileirado",

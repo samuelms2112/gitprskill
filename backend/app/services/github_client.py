@@ -169,11 +169,11 @@ class GitHubClient:
         commit_id: str,
         body: str,
         comments: list[dict[str, Any]],
-    ) -> str:
+    ) -> tuple[str, int]:
         """Publica uma review com comentários em linhas do diff (``POST .../pulls/{n}/reviews``).
 
         Usa sempre o evento ``COMMENT``: a revisão automática nunca aprova nem pede mudanças.
-        Devolve a URL da review criada.
+        Devolve a URL e o id da review criada.
 
         Raises:
             GitHubApiError: O GitHub recusou a review (ex.: linha fora do diff).
@@ -185,9 +185,49 @@ class GitHubClient:
         )
         data = response.json()
         url = data.get("html_url") if isinstance(data, dict) else None
-        if not isinstance(url, str):
+        review_id = data.get("id") if isinstance(data, dict) else None
+        if not isinstance(url, str) or not isinstance(review_id, int):
             raise GitHubResponseError("Resposta do GitHub ao publicar a review fora do formato esperado.")
-        return url
+        return url, review_id
+
+    async def list_review_comment_ids(self, owner: str, repo: str, number: int, review_id: int) -> list[int]:
+        """Ids dos comentários em linha de uma review (``GET .../pulls/{n}/reviews/{id}/comments``)."""
+        ids: list[int] = []
+        async for page in self._iter_pages(
+            f"/repos/{_segment(owner)}/{_segment(repo)}/pulls/{number}/reviews/{review_id}/comments",
+            {"per_page": PAGE_SIZE},
+        ):
+            ids.extend(item["id"] for item in page if isinstance(item.get("id"), int))
+        return ids
+
+    async def list_conversation(self, owner: str, repo: str, number: int) -> list[dict[str, Any]]:
+        """Comentários em linha e comentários gerais do PR, em ordem cronológica.
+
+        Cada item traz ``id``, ``author``, ``body``, ``created_at``, ``in_reply_to_id``, ``path`` e ``kind``
+        (``review`` para comentário em linha, ``issue`` para comentário geral).
+        """
+        items: list[dict[str, Any]] = []
+        base = f"/repos/{_segment(owner)}/{_segment(repo)}"
+        async for page in self._iter_pages(f"{base}/pulls/{number}/comments", {"per_page": PAGE_SIZE}):
+            items.extend(_conversation_item(raw, kind="review") for raw in page)
+        async for page in self._iter_pages(f"{base}/issues/{number}/comments", {"per_page": PAGE_SIZE}):
+            items.extend(_conversation_item(raw, kind="issue") for raw in page)
+        items.sort(key=lambda item: str(item["created_at"]))
+        return items
+
+    async def create_issue_comment(self, owner: str, repo: str, number: int, *, body: str) -> tuple[str, int]:
+        """Comentário geral na conversa do PR (``POST .../issues/{n}/comments``). Devolve URL e id."""
+        response = await self._request(
+            "POST",
+            f"/repos/{_segment(owner)}/{_segment(repo)}/issues/{number}/comments",
+            json_body={"body": body},
+        )
+        data = response.json()
+        url = data.get("html_url") if isinstance(data, dict) else None
+        comment_id = data.get("id") if isinstance(data, dict) else None
+        if not isinstance(url, str) or not isinstance(comment_id, int):
+            raise GitHubResponseError("Resposta do GitHub ao comentar fora do formato esperado.")
+        return url, comment_id
 
     async def get_authenticated_user(self) -> GitHubUserProfile:
         """Retorna o perfil do usuário dono do token (``GET /user``).
@@ -519,3 +559,17 @@ def _parse_pull_request(data: Any) -> GitHubPullRequest:
     except ValidationError as exc:
         logger.error("Payload de PR do GitHub fora do schema esperado")
         raise GitHubResponseError("Resposta do GitHub fora do formato esperado.") from exc
+
+
+def _conversation_item(raw: Any, *, kind: str) -> dict[str, Any]:
+    user = raw.get("user") if isinstance(raw, dict) else None
+    return {
+        "id": raw.get("id"),
+        "author": (user or {}).get("login", ""),
+        "author_type": (user or {}).get("type", ""),
+        "body": raw.get("body") or "",
+        "created_at": raw.get("created_at") or "",
+        "in_reply_to_id": raw.get("in_reply_to_id"),
+        "path": raw.get("path"),
+        "kind": kind,
+    }

@@ -3,16 +3,23 @@
 Estados em ``pr_ai_reviews``: PENDING (pedida) -> RUNNING -> COMPLETED ou FAILED.
 A publicação no GitHub é sempre como ``COMMENT``. Falha de publicação não invalida a revisão:
 os apontamentos continuam no portal e o erro fica em ``publish_error``.
+
+Reavaliação: quando já existe revisão anterior, ou quando o disparo veio de um push ou de um
+comentário, o modelo recebe também a conversa do PR e responde com o status dos apontamentos
+anteriores. A resposta é publicada na conversa do PR, e os ids dos comentários criados são
+guardados para reconhecer respostas futuras às threads da plataforma.
 """
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 import redis
 from celery import Task
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
@@ -41,10 +48,13 @@ from app.services.claude_session import (
 )
 from app.services.github_client import GitHubClient
 from app.services.pr_review import (
+    PreviousFindingStatus,
     ReviewFinding,
+    build_reevaluation_prompt,
     build_review_prompt,
     commentable_lines,
     parse_findings,
+    parse_reevaluation,
     review_body,
     split_findings,
 )
@@ -97,6 +107,8 @@ async def _execute(
         return "skipped"
 
     settings = get_settings()
+    reevaluate = job["trigger"] is not None or job["has_previous"]
+    reply = ""
     try:
         token = await app_auth.get_installation_access_token(job["installation_id"])
         async with GitHubClient(
@@ -107,23 +119,42 @@ async def _execute(
             github_pr = await gh.get_pull_request(job["owner"], job["repo"], job["number"])
             diff = await gh.get_pull_request_diff(job["owner"], job["repo"], job["number"])
 
-            prompt, _truncated = build_review_prompt(
-                title=job["title"],
-                description=job["body"],
-                diff_text=diff,
-                rules=job["rules"],
-                max_diff_chars=settings.claude_max_diff_chars,
-            )
+            if reevaluate:
+                conversation = await gh.list_conversation(job["owner"], job["repo"], job["number"])
+                prompt, _truncated = build_reevaluation_prompt(
+                    title=job["title"],
+                    description=job["body"],
+                    diff_text=diff,
+                    rules=job["rules"],
+                    previous=job["previous_findings"],
+                    conversation=conversation,
+                    max_diff_chars=settings.claude_max_diff_chars,
+                )
+            else:
+                prompt, _truncated = build_review_prompt(
+                    title=job["title"],
+                    description=job["body"],
+                    diff_text=diff,
+                    rules=job["rules"],
+                    max_diff_chars=settings.claude_max_diff_chars,
+                )
             try:
                 text = await provider.generate_text(prompt)
-                findings = parse_findings(text)
+                if reevaluate:
+                    outcome = parse_reevaluation(text)
+                    findings = outcome.findings
+                    reply = _reply_with_statuses(outcome.reply, outcome.previous)
+                else:
+                    findings = parse_findings(text)
             except (AISessionExpiredError, AIRateLimitError):
                 raise
             except (AIError, AIResponseError) as exc:
                 await _finish(session_factory, review_id, AIReviewStatus.FAILED, error=exc.message)
                 return "failed"
 
-            publish_url, publish_error = await _publish(gh, job, github_pr.head.sha, diff, findings)
+            publish_url, publish_error, comment_ids = await _publish(
+                gh, job, github_pr.head.sha, diff, findings, reply
+            )
     except GitHubError as exc:
         await _finish(session_factory, review_id, AIReviewStatus.FAILED, error=exc.message)
         return "failed"
@@ -136,9 +167,29 @@ async def _execute(
         rules_version=job["rules_version"],
         publish_url=publish_url,
         publish_error=publish_error,
+        reply_text=reply or None,
+        comment_ids=comment_ids,
     )
-    audit_event("pr_review_completed", review_id=review_id, findings=len(findings), published=publish_url is not None)
+    audit_event(
+        "pr_review_completed",
+        review_id=review_id,
+        findings=len(findings),
+        published=publish_url is not None,
+        trigger=job["trigger"],
+    )
     return "completed"
+
+
+def _reply_with_statuses(reply: str, statuses: Sequence[PreviousFindingStatus]) -> str:
+    """Resposta publicada: o texto do modelo e, se houver, o status de cada apontamento anterior."""
+    lines = [reply] if reply else []
+    if statuses:
+        lines.append("")
+        lines.append("Apontamentos anteriores:")
+        for item in statuses:
+            label = "resolvido" if item.status == "RESOLVED" else "ainda em aberto"
+            lines.append(f"- {item.id}: {label}" + (f". {item.note}" if item.note else ""))
+    return "\n".join(lines).strip()
 
 
 async def _publish(
@@ -147,15 +198,44 @@ async def _publish(
     head_sha: str | None,
     diff: str,
     findings: list[ReviewFinding],
-) -> tuple[str | None, str | None]:
-    """Publica a review como COMMENT, mesmo sem apontamentos (o resumo 'zero apontamentos' fica no PR).
-    Se o GitHub recusar os comentários em linha, tenta de novo com tudo no corpo da review."""
-    if not head_sha:
-        return None, "O GitHub não informou o commit do PR."
+    reply: str,
+) -> tuple[str | None, str | None, list[int]]:
+    """Publica a review (COMMENT, mesmo sem apontamentos) e, se houver, a resposta na conversa.
 
+    Devolve a URL da review, o erro de publicação e os ids dos comentários criados pela plataforma.
+    """
+    comment_ids: list[int] = []
+    publish_url: str | None = None
+    publish_error: str | None = None
+
+    if not head_sha:
+        publish_error = "O GitHub não informou o commit do PR."
+    else:
+        publish_url, review_id, publish_error = await _create_review(gh, job, head_sha, diff, findings)
+        if review_id is not None:
+            comment_ids.extend(await gh.list_review_comment_ids(job["owner"], job["repo"], job["number"], review_id))
+            comment_ids.append(review_id)
+
+    if reply:
+        try:
+            _url, reply_id = await gh.create_issue_comment(job["owner"], job["repo"], job["number"], body=reply)
+            comment_ids.append(reply_id)
+        except GitHubError as exc:
+            publish_error = publish_error or exc.message
+    return publish_url, publish_error, comment_ids
+
+
+async def _create_review(
+    gh: GitHubClient,
+    job: dict[str, Any],
+    head_sha: str,
+    diff: str,
+    findings: list[ReviewFinding],
+) -> tuple[str | None, int | None, str | None]:
+    """Cria a review com os comentários em linha. Se o GitHub recusar, tenta com tudo no corpo."""
     inline, general = split_findings(findings, commentable_lines(diff))
     try:
-        url = await gh.create_pull_request_review(
+        url, review_id = await gh.create_pull_request_review(
             job["owner"],
             job["repo"],
             job["number"],
@@ -163,11 +243,11 @@ async def _publish(
             body=review_body(general, total=len(findings)),
             comments=inline,
         )
-        return url, None
+        return url, review_id, None
     except GitHubError:
         logger.info("GitHub recusou comentários em linha; publicando tudo no corpo da review")
     try:
-        url = await gh.create_pull_request_review(
+        url, review_id = await gh.create_pull_request_review(
             job["owner"],
             job["repo"],
             job["number"],
@@ -175,9 +255,9 @@ async def _publish(
             body=review_body(findings, total=len(findings)),
             comments=[],
         )
-        return url, None
+        return url, review_id, None
     except GitHubError as exc:
-        return None, exc.message
+        return None, None, exc.message
 
 
 async def _start(session_factory: async_sessionmaker[AsyncSession], review_id: int) -> dict[str, Any] | None:
@@ -196,6 +276,17 @@ async def _start(session_factory: async_sessionmaker[AsyncSession], review_id: i
 
         skill = await ensure_default_skill(session, tenant.id)
         rules = [(rule.filename, rule.content) for rule in await skill_rules(session, skill.id)]
+        previous = await session.scalar(
+            select(PullRequestAIReview)
+            .where(
+                PullRequestAIReview.pull_request_id == pr.id,
+                PullRequestAIReview.status == AIReviewStatus.COMPLETED,
+                PullRequestAIReview.id != review.id,
+            )
+            .order_by(PullRequestAIReview.created_at.desc())
+            .limit(1)
+        )
+        previous_findings = [ReviewFinding.model_validate(item) for item in (previous.findings or [])] if previous else []
         review.status = AIReviewStatus.RUNNING
         return {
             "installation_id": tenant.github_installation_id,
@@ -206,6 +297,9 @@ async def _start(session_factory: async_sessionmaker[AsyncSession], review_id: i
             "body": pr.body or "",
             "rules": rules,
             "rules_version": await latest_rules_version(session, skill.id),
+            "trigger": review.trigger,
+            "has_previous": previous is not None,
+            "previous_findings": previous_findings,
         }
 
 
@@ -219,6 +313,8 @@ async def _finish(
     rules_version: datetime | None = None,
     publish_url: str | None = None,
     publish_error: str | None = None,
+    reply_text: str | None = None,
+    comment_ids: list[int] | None = None,
 ) -> None:
     async with session_factory() as session, session.begin():
         review = await session.get(PullRequestAIReview, review_id)
@@ -231,6 +327,8 @@ async def _finish(
         review.rules_version = rules_version
         review.github_review_url = publish_url
         review.publish_error = publish_error
+        review.reply_text = reply_text
+        review.github_comment_ids = comment_ids
         review.finished_at = datetime.now(UTC)
 
 

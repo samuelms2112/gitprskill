@@ -120,7 +120,8 @@ prepare_claude_login() {
 
 check_claude_login() {
   log "Sessão do Claude Code"
-  if docker compose -f "${COMPOSE_FILE}" exec -T worker claude auth status >/dev/null 2>&1; then
+  # ``claude auth status`` sai com código 0 mesmo sem login: o campo "loggedIn" é que indica a sessão.
+  if docker compose -f "${COMPOSE_FILE}" exec -T worker claude auth status 2>/dev/null | grep -q '"loggedIn": true'; then
     echo "Claude Code autenticado."
   else
     echo "AVISO: o Claude Code ainda não está logado. Faça o login no servidor:"

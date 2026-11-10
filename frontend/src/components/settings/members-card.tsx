@@ -1,6 +1,6 @@
 'use client';
 
-import { Trash2 } from 'lucide-react';
+import { Link2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -8,10 +8,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ErrorState } from '@/components/ui/feedback';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useMembers, useRemoveMember, useUpdateMemberRole } from '@/features/members/queries';
+import {
+  useAddMember,
+  useCandidates,
+  useMembers,
+  useRemoveMember,
+  useUpdateMemberRole,
+} from '@/features/members/queries';
 import { useAuth } from '@/features/auth/auth-context';
 import { errorMessage } from '@/lib/api/error-message';
-import type { Member, MemberRoleValue } from '@/lib/api/members';
+import type { Candidate, Member, MemberRoleValue } from '@/lib/api/members';
 import { formatDateTime } from '@/lib/format';
 
 const ROLE_LABELS: Record<MemberRoleValue, string> = {
@@ -27,8 +33,10 @@ export function MembersCard({ tenantSlug, tenantName }: { tenantSlug: string; te
   const updateRole = useUpdateMemberRole(tenantSlug);
   const removeMember = useRemoveMember(tenantSlug);
   const [pendingRemoval, setPendingRemoval] = useState<number | null>(null);
+  const candidates = useCandidates(tenantSlug, true);
+  const addMember = useAddMember(tenantSlug);
 
-  const actionError = updateRole.error ?? removeMember.error;
+  const actionError = updateRole.error ?? removeMember.error ?? addMember.error;
 
   return (
     <Card>
@@ -86,8 +94,83 @@ export function MembersCard({ tenantSlug, tenantName }: { tenantSlug: string; te
             </table>
           </div>
         )}
+        <div className="space-y-3 border-t border-border pt-5">
+          <div className="space-y-1">
+            <h3 className="font-medium">Usuários sem vínculo</h3>
+            <p className="text-sm text-muted-foreground">
+              Pessoas que já entraram na plataforma e ainda não pertencem a esta empresa. Escolha o papel e vincule.
+            </p>
+          </div>
+
+          {candidates.isPending && <Skeleton className="h-16" />}
+
+          {candidates.isError && (
+            <ErrorState message={errorMessage(candidates.error)} onRetry={() => void candidates.refetch()} />
+          )}
+
+          {candidates.data && candidates.data.length === 0 && (
+            <p className="text-sm text-muted-foreground">Todos os usuários conhecidos já pertencem a esta empresa.</p>
+          )}
+
+          {candidates.data && candidates.data.length > 0 && (
+            <ul className="divide-y divide-border">
+              {candidates.data.map((candidate) => (
+                <CandidateRow
+                  key={candidate.user_id}
+                  candidate={candidate}
+                  busy={addMember.isPending}
+                  onLink={(role) => addMember.mutate({ userId: candidate.user_id, role })}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
       </CardContent>
     </Card>
+  );
+}
+
+function CandidateRow({
+  candidate,
+  busy,
+  onLink,
+}: {
+  candidate: Candidate;
+  busy: boolean;
+  onLink: (role: MemberRoleValue) => void;
+}) {
+  const [role, setRole] = useState<MemberRoleValue>('DEVELOPER');
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 py-3">
+      <div className="flex items-center gap-2">
+        {candidate.avatar_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={candidate.avatar_url} alt="" className="size-6 rounded-full" />
+        )}
+        <span className="font-medium">{candidate.login}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <Select
+          aria-label={`Papel para ${candidate.login}`}
+          value={role}
+          disabled={busy}
+          onChange={(event) => setRole(event.target.value as MemberRoleValue)}
+          className="h-8 w-44 text-xs"
+        >
+          {(Object.keys(ROLE_LABELS) as MemberRoleValue[])
+            .filter((value) => value !== 'OWNER')
+            .map((value) => (
+              <option key={value} value={value}>
+                {ROLE_LABELS[value]}
+              </option>
+            ))}
+        </Select>
+        <Button size="sm" onClick={() => onLink(role)} disabled={busy}>
+          <Link2 aria-hidden />
+          Vincular
+        </Button>
+      </div>
+    </li>
   );
 }
 

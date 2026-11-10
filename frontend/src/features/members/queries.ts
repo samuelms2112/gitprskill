@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { membersApi, type MemberRoleValue } from '@/lib/api/members';
+import { candidatesApi, membersApi, type MemberRoleValue } from '@/lib/api/members';
 
 import { useAuth } from '../auth/auth-context';
 
@@ -36,5 +36,27 @@ export function useRemoveMember(tenantSlug: string) {
   return useMutation({
     mutationFn: (userId: number) => membersApi.remove(requireToken(token), tenantSlug, userId),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['members', tenantSlug] }),
+  });
+}
+
+export function useCandidates(tenantSlug: string, enabled: boolean) {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ['member-candidates', tenantSlug],
+    queryFn: ({ signal }) => candidatesApi.list(requireToken(token), tenantSlug, signal),
+    enabled: enabled && token !== null,
+  });
+}
+
+export function useAddMember(tenantSlug: string) {
+  const { token } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: number; role: MemberRoleValue }) =>
+      candidatesApi.add(requireToken(token), tenantSlug, userId, role),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['members', tenantSlug] });
+      void queryClient.invalidateQueries({ queryKey: ['member-candidates', tenantSlug] });
+    },
   });
 }

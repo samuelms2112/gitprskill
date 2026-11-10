@@ -4,6 +4,7 @@ Regra central: o tenant nunca fica sem nenhum OWNER. Trocar o papel do último d
 é recusado com 409.
 """
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
@@ -17,7 +18,7 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.models.enums import MemberRole
 from app.models.tenant_member import TenantMember
 from app.models.user import User
-from app.schemas.member import MemberRead, MemberRoleUpdate
+from app.schemas.member import CandidateRead, MemberAdd, MemberRead, MemberRoleUpdate
 
 router = APIRouter(prefix="/tenants/{tenant_slug}/members", tags=["Membros"])
 
@@ -83,6 +84,66 @@ async def list_members(context: OwnerContext, session: DbSession) -> list[Member
         )
         for user_id, login, avatar_url, role, joined_at in rows.all()
     ]
+
+
+@router.get(
+    "/candidates",
+    response_model=list[CandidateRead],
+    summary="Usuários da plataforma que ainda não pertencem ao tenant",
+)
+async def list_candidates(context: OwnerContext, session: DbSession) -> list[CandidateRead]:
+    member_ids = select(TenantMember.user_id).where(TenantMember.tenant_id == context.tenant.id)
+    rows = await session.execute(
+        select(User.id, User.login, User.avatar_url)
+        .where(User.id.not_in(member_ids))
+        .order_by(User.login)
+    )
+    return [
+        CandidateRead(user_id=user_id, login=login, avatar_url=avatar_url)
+        for user_id, login, avatar_url in rows.all()
+    ]
+
+
+@router.post(
+    "",
+    response_model=MemberRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Vincula um usuário existente ao tenant",
+)
+async def add_member(
+    payload: MemberAdd,
+    context: OwnerContext,
+    actor: CurrentUser,
+    session: DbSession,
+) -> MemberRead:
+    user = await session.get(User, payload.user_id)
+    if user is None:
+        raise NotFoundError("Usuário não encontrado.")
+    existing = await session.scalar(
+        select(TenantMember.id).where(
+            TenantMember.tenant_id == context.tenant.id, TenantMember.user_id == user.id
+        )
+    )
+    if existing is not None:
+        raise ConflictError("Este usuário já pertence ao tenant.")
+
+    member = TenantMember(tenant_id=context.tenant.id, user_id=user.id, role=payload.role)
+    session.add(member)
+    await session.flush()
+    audit_event(
+        "member_added",
+        tenant_slug=context.tenant.slug,
+        target_user_id=user.id,
+        actor_user_id=actor.id,
+        new_role=payload.role.value,
+    )
+    return MemberRead(
+        user_id=user.id,
+        login=user.login,
+        avatar_url=user.avatar_url,
+        role=payload.role,
+        joined_at=member.created_at or datetime.now(UTC),
+    )
 
 
 @router.patch("/{user_id}", response_model=MemberRead, summary="Altera o papel de um membro")

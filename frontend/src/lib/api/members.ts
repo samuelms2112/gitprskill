@@ -29,3 +29,25 @@ export const membersApi = {
       token,
     }),
 };
+
+/** Usuário da plataforma que ainda não pertence à empresa. Espelha ``CandidateRead``. */
+export interface Candidate {
+  user_id: number;
+  login: string;
+  avatar_url: string | null;
+}
+
+export const candidatesApi = {
+  list: (token: string, tenantSlug: string, signal?: AbortSignal) =>
+    apiRequest<Candidate[]>(`/tenants/${encodeURIComponent(tenantSlug)}/members/candidates`, {
+      token,
+      signal,
+    }),
+
+  add: (token: string, tenantSlug: string, userId: number, role: MemberRoleValue) =>
+    apiRequest<Member>(`/tenants/${encodeURIComponent(tenantSlug)}/members`, {
+      method: 'POST',
+      token,
+      body: { user_id: userId, role },
+    }),
+};

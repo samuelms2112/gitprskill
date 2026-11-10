@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, GitPullRequest, LayoutDashboard, Settings } from 'lucide-react';
+import { FileText, GitPullRequest, LayoutDashboard, ScanSearch, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -12,6 +12,7 @@ import { TenantSelector } from './tenant-selector';
 const NAVIGATION = [
   { href: '/dashboard', label: 'Painel', icon: LayoutDashboard },
   { href: '/release-notes', label: 'Release notes', icon: FileText },
+  { href: '/revisoes', label: 'Revisões', icon: ScanSearch },
   { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ] as const;
 

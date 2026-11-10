@@ -104,6 +104,7 @@ class PullRequestIngestionService:
             outcome=IngestionOutcome.PROCESSED,
             pull_request_id=pull_request_id,
             enrich=event.pull_request.is_merged,
+            review=event.action == "opened" and not event.pull_request.is_merged,
         )
 
     async def store(

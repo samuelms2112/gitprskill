@@ -5,6 +5,9 @@ import { Button } from '@/components/ui/button';
 import { ExternalLink, FilePlus2, Timer } from 'lucide-react';
 import { useState } from 'react';
 
+import { ReviewBadge } from '@/components/reviews/review-badge';
+import { useTenant } from '@/features/tenant/tenant-context';
+import { latestReviewByPullRequest, useReviews } from '@/features/reviews/queries';
 import { formatDateTime, formatDuration, formatNumber, formatRelative } from '@/lib/format';
 import type { PullRequestReportItem } from '@/lib/api/types';
 import { cn } from '@/lib/utils';
@@ -33,6 +36,9 @@ export function PrCard({ item }: PrCardProps) {
   const [expanded, setExpanded] = useState(false);
   const paragraphs = summaryParagraphs(item.ai_summary);
   const hasLongSummary = paragraphs.join(' ').length > 180 || paragraphs.length > 1;
+  const { activeTenant } = useTenant();
+  const reviews = useReviews(activeTenant?.slug ?? null);
+  const review = latestReviewByPullRequest(reviews.data).get(item.id);
 
   return (
     <article className="rounded-lg border border-border bg-card p-4 transition-colors hover:border-muted-foreground/30">
@@ -72,6 +78,7 @@ export function PrCard({ item }: PrCardProps) {
                 )}
               </p>
             </div>
+            <ReviewBadge review={review} />
 
             <div className="flex shrink-0 flex-wrap gap-1.5">
               <PullRequestStateBadge isMerged={item.is_merged} />

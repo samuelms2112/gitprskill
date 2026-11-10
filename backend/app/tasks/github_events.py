@@ -17,7 +17,10 @@ from sqlalchemy.pool import NullPool
 from app.core.celery_app import celery_app
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
+from app.models.pull_request import PullRequest
 from app.services.github_event_processor import GitHubEventProcessor
+from app.services.review_store import request_review
+from app.workers.review_tasks import review_pr_task
 from app.workers.tasks import enrich_pr_with_ai_task
 
 logger = get_logger(__name__)
@@ -44,7 +47,29 @@ async def handle_event(
     )
     if result.enrich and result.pull_request_id is not None:
         _schedule_ai_enrichment(result.pull_request_id)
+    if result.review and result.pull_request_id is not None:
+        await schedule_pr_review(session_factory, result.pull_request_id)
     return result.outcome.value
+
+
+async def schedule_pr_review(session_factory: async_sessionmaker[AsyncSession], pull_request_id: int) -> None:
+    """Registra a revisão como PENDING (o card já mostra 'Revisando') e enfileira a tarefa.
+
+    Melhor esforço: sem IA configurada ou sem broker, nada quebra; a revisão pode ser pedida
+    depois pelo portal.
+    """
+    if not get_settings().ai_configured:
+        return
+    async with session_factory() as session, session.begin():
+        pull_request = await session.get(PullRequest, pull_request_id)
+        if pull_request is None:
+            return
+        review = await request_review(session, tenant_id=pull_request.tenant_id, pull_request_id=pull_request_id)
+        review_id = review.id
+    try:
+        review_pr_task.delay(review_id)
+    except BrokerOperationalError:
+        logger.warning("Não foi possível agendar a revisão do PR", extra={"pr_id": pull_request_id})
 
 
 def _schedule_ai_enrichment(pull_request_id: int) -> None:

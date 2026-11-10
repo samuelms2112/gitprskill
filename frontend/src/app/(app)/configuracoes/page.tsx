@@ -2,13 +2,14 @@
 
 import { ClaudeSessionCard } from '@/components/settings/claude-session-card';
 import { MembersCard } from '@/components/settings/members-card';
+import { ReviewSkillCard } from '@/components/settings/review-skill-card';
 import { EmptyState } from '@/components/ui/feedback';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useTenant } from '@/features/tenant/tenant-context';
 
 /**
  * Configurações por papel: a sessão do Claude é do sistema (qualquer dono de empresa);
- * a gestão de usuários é da empresa ativa (somente o dono dela).
+ * usuários e regras de revisão são da empresa ativa (somente o dono dela).
  */
 export default function SettingsPage() {
   const { tenants, activeTenant, isLoading } = useTenant();
@@ -44,12 +45,21 @@ export default function SettingsPage() {
       </section>
 
       {ownsActiveTenant && activeTenant && (
-        <section aria-labelledby="usuarios-titulo" className="space-y-4">
-          <h2 id="usuarios-titulo" className="text-lg font-semibold">
-            Usuários
-          </h2>
-          <MembersCard tenantSlug={activeTenant.slug} tenantName={activeTenant.name} />
-        </section>
+        <>
+          <section aria-labelledby="usuarios-titulo" className="space-y-4">
+            <h2 id="usuarios-titulo" className="text-lg font-semibold">
+              Usuários
+            </h2>
+            <MembersCard tenantSlug={activeTenant.slug} tenantName={activeTenant.name} />
+          </section>
+
+          <section aria-labelledby="revisao-titulo" className="space-y-4">
+            <h2 id="revisao-titulo" className="text-lg font-semibold">
+              Revisão de PRs
+            </h2>
+            <ReviewSkillCard tenantSlug={activeTenant.slug} tenantName={activeTenant.name} />
+          </section>
+        </>
       )}
     </div>
   );

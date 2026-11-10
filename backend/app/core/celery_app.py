@@ -17,7 +17,7 @@ def create_celery_app() -> Celery:
     settings = get_settings()
     celery = Celery(
         "github_management",
-        include=["app.tasks.github_events", "app.workers.tasks", "app.workers.backfill_tasks"],
+        include=["app.tasks.github_events", "app.workers.tasks", "app.workers.backfill_tasks", "app.workers.review_tasks"],
     )
     celery.conf.update(
         broker_url=settings.redis_url,

@@ -160,6 +160,35 @@ class GitHubClient:
         response = await self._request("GET", path, accept=DIFF_ACCEPT_HEADER)
         return response.text
 
+    async def create_pull_request_review(
+        self,
+        owner: str,
+        repo: str,
+        number: int,
+        *,
+        commit_id: str,
+        body: str,
+        comments: list[dict[str, Any]],
+    ) -> str:
+        """Publica uma review com comentários em linhas do diff (``POST .../pulls/{n}/reviews``).
+
+        Usa sempre o evento ``COMMENT``: a revisão automática nunca aprova nem pede mudanças.
+        Devolve a URL da review criada.
+
+        Raises:
+            GitHubApiError: O GitHub recusou a review (ex.: linha fora do diff).
+        """
+        response = await self._request(
+            "POST",
+            f"/repos/{_segment(owner)}/{_segment(repo)}/pulls/{number}/reviews",
+            json_body={"commit_id": commit_id, "event": "COMMENT", "body": body, "comments": comments},
+        )
+        data = response.json()
+        url = data.get("html_url") if isinstance(data, dict) else None
+        if not isinstance(url, str):
+            raise GitHubResponseError("Resposta do GitHub ao publicar a review fora do formato esperado.")
+        return url
+
     async def get_authenticated_user(self) -> GitHubUserProfile:
         """Retorna o perfil do usuário dono do token (``GET /user``).
 
@@ -317,6 +346,7 @@ class GitHubClient:
         *,
         params: dict[str, Any] | None = None,
         accept: str = ACCEPT_HEADER,
+        json_body: dict[str, Any] | None = None,
     ) -> httpx.Response:
         """Executa uma requisição com retentativas, controle de cota e mapeamento de erros.
 
@@ -334,7 +364,11 @@ class GitHubClient:
 
             try:
                 response = await self._http.request(
-                    method, url, params=params, headers=self._build_headers(accept)
+                    method,
+                    url,
+                    params=params,
+                    headers=self._build_headers(accept),
+                    json=json_body,
                 )
             except httpx.TransportError as exc:
                 if attempt > self._max_retries:

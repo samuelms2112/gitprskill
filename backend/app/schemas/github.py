@@ -42,6 +42,8 @@ class GitHubBranchRef(_GitHubPayload):
     """Referência de branch (``head`` ou ``base``) de um PR."""
 
     ref: str
+    # SHA do commit da ponta da branch. Ausente em payloads antigos, por isso é opcional.
+    sha: str | None = None
 
 
 class GitHubPullRequest(_GitHubPayload):

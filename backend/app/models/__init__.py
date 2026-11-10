@@ -5,6 +5,7 @@ esquema completo, requisito para o autogenerate do Alembic.
 """
 
 from app.models.base import Base
+from app.models.ai_review import PullRequestAIReview, ReviewSkill, ReviewSkillRule
 from app.models.contributor import Contributor
 from app.models.pull_request import PullRequest
 from app.models.repository import Repository
@@ -16,6 +17,9 @@ from app.models.user import User
 __all__ = [
     "Base",
     "Contributor",
+    "PullRequestAIReview",
+    "ReviewSkill",
+    "ReviewSkillRule",
     "PullRequest",
     "Repository",
     "Review",

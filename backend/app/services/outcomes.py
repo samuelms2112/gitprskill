@@ -31,3 +31,5 @@ class IngestionResult:
     pull_request_id: int | None = None
     # True só quando o PR foi mergeado: somente então a análise de IA é disparada.
     enrich: bool = False
+    # True na abertura de um PR ainda não mergeado: pede a revisão automática pelas skills.
+    review: bool = False

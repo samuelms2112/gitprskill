@@ -28,7 +28,7 @@ export function apiUrl(path: string): string {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   token?: string | null;
   body?: unknown;
   signal?: AbortSignal;
@@ -54,6 +54,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (!response.ok) throw await toApiError(response);
+  // 204 No Content (ex.: remoção de membro) não tem corpo.
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 

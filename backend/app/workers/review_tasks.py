@@ -148,10 +148,8 @@ async def _publish(
     diff: str,
     findings: list[ReviewFinding],
 ) -> tuple[str | None, str | None]:
-    """Publica a review como COMMENT. Sem apontamentos, nada é publicado. Se o GitHub recusar os
-    comentários em linha, tenta de novo com tudo no corpo da review."""
-    if not findings:
-        return None, None
+    """Publica a review como COMMENT, mesmo sem apontamentos (o resumo 'zero apontamentos' fica no PR).
+    Se o GitHub recusar os comentários em linha, tenta de novo com tudo no corpo da review."""
     if not head_sha:
         return None, "O GitHub não informou o commit do PR."
 

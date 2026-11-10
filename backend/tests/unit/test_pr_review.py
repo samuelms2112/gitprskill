@@ -142,3 +142,8 @@ def test_review_body_lists_general_findings_with_location() -> None:
     body = review_body(findings, total=1)
     assert "1 apontamento" in body
     assert "`a.py`:3" in body and "vaza token" in body
+
+
+def test_review_body_says_zero_findings_explicitly() -> None:
+    body = review_body([], total=0)
+    assert "zero apontamentos" in body

@@ -177,6 +177,8 @@ def split_findings(
 
 def review_body(general: Sequence[ReviewFinding], total: int) -> str:
     """Corpo da review: resumo e os apontamentos que não cabem em uma linha do diff."""
+    if total == 0:
+        return f"Revisão automática (skill `{DEFAULT_SKILL_SLUG}`): zero apontamentos."
     lines = [f"Revisão automática (skill `{DEFAULT_SKILL_SLUG}`): {total} apontamento(s)."]
     if general:
         lines.append("")

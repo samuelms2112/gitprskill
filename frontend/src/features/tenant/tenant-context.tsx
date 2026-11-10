@@ -17,7 +17,7 @@ import { createStringStore } from '@/lib/browser-store';
 import { useAuth } from '../auth/auth-context';
 
 /** Última empresa escolhida. Preferência de visualização, não dado sensível: fica no localStorage. */
-const tenantSlugStore = createStringStore('ghm.tenant.slug', 'local');
+export const tenantSlugStore = createStringStore('ghm.tenant.slug', 'local');
 
 export interface TenantContextValue {
   tenants: TenantMembership[];

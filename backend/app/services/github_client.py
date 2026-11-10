@@ -173,6 +173,20 @@ class GitHubClient:
         except ValidationError as exc:
             raise GitHubResponseError("Perfil do GitHub fora do formato esperado.") from exc
 
+    async def list_organization_logins(self) -> list[str]:
+        """Logins das organizações das quais o usuário é membro (``GET /user/orgs``).
+
+        Requer o escopo ``read:org`` no token do OAuth. Inclui organizações em que o membro é privado.
+        """
+        logins: list[str] = []
+        async for page in self._iter_pages("/user/orgs", {"per_page": PAGE_SIZE}):
+            for item in page:
+                login = item.get("login") if isinstance(item, dict) else None
+                if not isinstance(login, str) or not login:
+                    raise GitHubResponseError("Organização do GitHub fora do formato esperado.")
+                logins.append(login)
+        return logins
+
     async def iter_installation_repositories(self) -> AsyncIterator[GitHubInstallationRepository]:
         """Todos os repositórios que a instalação do App pode acessar (``GET /installation/repositories``).
 

@@ -59,7 +59,8 @@ class Settings(BaseSettings):
     github_oauth_client_id: str | None = None
     github_oauth_client_secret: SecretStr | None = None
     github_oauth_redirect_uri: str | None = None
-    github_oauth_scopes: str = "read:user user:email"
+    # read:org permite vincular automaticamente os membros das organizações já atendidas (ver services/org_membership.py).
+    github_oauth_scopes: str = "read:user user:email read:org"
 
     # Provedor de IA: "claude_cli" (Claude Code CLI autenticado no servidor) ou "gemini" (nuvem).
     ai_provider: Literal["claude_cli", "gemini"] = "claude_cli"

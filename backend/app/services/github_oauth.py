@@ -74,9 +74,30 @@ class GitHubOAuthService:
         Raises:
             OAuthError: Código rejeitado ou falha de comunicação com o GitHub.
         """
-        access_token = await self._exchange_code(code)
+        access_token = await self.exchange_code(code)
+        return await self.fetch_profile(access_token)
+
+    async def fetch_profile(self, access_token: str) -> GitHubUserProfile:
+        """Perfil do dono do token (``GET /user``)."""
         async with self._api_client_factory(access_token) as api:
             return await api.get_authenticated_user()
+
+    async def list_organizations(self, access_token: str) -> list[str]:
+        """Logins das organizações do dono do token. Requer o escopo ``read:org``.
+
+        Raises:
+            GitHubError: Falha ao consultar o GitHub (o chamador decide se segue sem a lista).
+        """
+        async with self._api_client_factory(access_token) as api:
+            return await api.list_organization_logins()
+
+    async def exchange_code(self, code: str) -> str:
+        """Troca o ``code`` do callback pelo token de acesso do usuário.
+
+        Raises:
+            OAuthError: Código rejeitado ou falha de comunicação com o GitHub.
+        """
+        return await self._exchange_code(code)
 
     async def _exchange_code(self, code: str) -> str:
         client_id, redirect_uri = self._require_configured()

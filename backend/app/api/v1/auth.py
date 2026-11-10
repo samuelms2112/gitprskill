@@ -14,6 +14,7 @@ from app.core.exceptions import OAuthStateError
 from app.core.security import TokenService, TokenValidationError
 from app.schemas.user import UserRead
 from app.services.github_oauth import GitHubOAuthService
+from app.services.org_membership import SqlMembershipStore, link_organization_tenants
 from app.services.users import upsert_user
 
 router = APIRouter(prefix="/auth", tags=["Autenticação"])
@@ -38,7 +39,7 @@ async def github_login(
     "/github/callback",
     status_code=302,
     response_class=RedirectResponse,
-    summary="Conclui o login e redireciona ao frontend com o token de sessão",
+    summary="Conclui o login, vincula os membros das organizações e redireciona com o token de sessão",
 )
 async def github_callback(
     session: Annotated[AsyncSession, Depends(get_db_session)],
@@ -48,10 +49,12 @@ async def github_callback(
     code: Annotated[str, Query(min_length=1, max_length=512)],
     state: Annotated[str, Query(min_length=1, max_length=2048)],
 ) -> RedirectResponse:
-    """Valida o ``state``, troca o ``code``, cria ou atualiza o usuário e emite o JWT.
+    """Valida o ``state``, troca o ``code``, cria ou atualiza o usuário, vincula os tenants das
+    organizações dele e emite o JWT.
 
     O token vai no **fragmento** da URL de retorno (``#access_token=...``): fragmentos não são
-    enviados ao servidor nem aparecem em logs ou cabeçalho ``Referer``.
+    enviados ao servidor nem aparecem em logs ou cabeçalho ``Referer``. O parâmetro ``tenant``
+    indica a empresa a selecionar ao entrar, quando há um vínculo.
 
     Raises:
         OAuthStateError: Quando o ``state`` é inválido, expirado ou adulterado.
@@ -61,7 +64,8 @@ async def github_callback(
     except TokenValidationError as exc:
         raise OAuthStateError("Parâmetro state inválido ou expirado.") from exc
 
-    profile = await oauth.complete_login(code)
+    github_token = await oauth.exchange_code(code)
+    profile = await oauth.fetch_profile(github_token)
     user = await upsert_user(
         session,
         github_id=profile.id,
@@ -69,8 +73,17 @@ async def github_callback(
         email=profile.email,
         avatar_url=profile.avatar_url,
     )
+    linked = await link_organization_tenants(
+        SqlMembershipStore(session),
+        user_id=user.id,
+        list_organizations=lambda: oauth.list_organizations(github_token),
+    )
+
     access_token, expires_in = tokens.create_access_token(user.id)
-    fragment = urlencode({"access_token": access_token, "expires_in": expires_in})
+    params = {"access_token": access_token, "expires_in": expires_in}
+    if linked:
+        params["tenant"] = linked[0].slug
+    fragment = urlencode(params)
     return RedirectResponse(
         f"{settings.frontend_url.rstrip('/')}/auth/callback#{fragment}",
         status_code=302,

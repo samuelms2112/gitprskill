@@ -2,7 +2,7 @@
 
 A função executa em três fases, com a transação do banco fechada durante as chamadas externas:
     1. Lê os dados do PR e a instalação do GitHub App do tenant dono (sessão curta).
-    2. Busca o diff; pede o parecer de produto (PM/PO); pede a análise técnica (conselho).
+    2. Busca o diff; pede o parecer de produto (PM/PO); pede a análise técnica.
     3. Calcula o embedding do resumo e grava tudo (sessão curta, com nova checagem de idempotência).
 
 O parecer de produto e o embedding são opcionais: se falharem, o PR é analisado mesmo assim.
@@ -46,7 +46,7 @@ class InstallationDiffFetcher(Protocol):
 
 
 class PullRequestAnalyzer(Protocol):
-    """Conselho/provedor de análise técnica de PRs."""
+    """Provedor de análise técnica de PRs."""
 
     async def analyze_pull_request(
         self,

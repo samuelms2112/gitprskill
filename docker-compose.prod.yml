@@ -1,6 +1,6 @@
-# Stack de produção para um Droplet pequeno (4 GB de RAM + swap).
-# Só o Caddy (portas 80/443) é exposto. Postgres, Redis e Ollama ficam na rede interna.
-# Os limites de memória somam bem abaixo de 4 GB; o swap do script cobre picos.
+# Stack de produção para um Droplet pequeno.
+# Só o Caddy (portas 80/443) é exposto. Postgres e Redis ficam na rede interna.
+# A IA é o Claude Code CLI, autenticado no servidor: o login fica em /root/.claude (montado no backend e no worker).
 #
 # Uso (feito pelo scripts/deploy_digitalocean.sh):
 #   docker compose -f docker-compose.prod.yml up -d --build
@@ -35,15 +35,21 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Roda como root só para ler o login do Claude Code em /root/.claude (ver nota no worker).
+    user: "0:0"
     env_file: .env
     # Sobrescreve o .env para apontar para os nomes de serviço da rede interna.
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ghmgmt}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-github_management}
       REDIS_URL: redis://redis:6379/0
-      OLLAMA_BASE_URL: http://ollama:11434
+      HOME: /root
       FRONTEND_URL: https://${DOMAIN:?Defina DOMAIN}
       CORS_ALLOWED_ORIGINS: https://${DOMAIN}
       ENVIRONMENT: production
+    # A API usa o Claude Code para o diagnóstico da sessão e o login (/api/v1/system/claude).
+    volumes:
+      - /root/.claude:/root/.claude
+      - /root/.claude.json:/root/.claude.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,19 +64,25 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 768M
 
   worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Roda como root: o login do Claude Code fica em /root/.claude, que um usuário sem privilégios não lê.
+    user: "0:0"
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ghmgmt}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-github_management}
       REDIS_URL: redis://redis:6379/0
-      OLLAMA_BASE_URL: http://ollama:11434
+      HOME: /root
       ENVIRONMENT: production
+    # Login do Claude Code (persistido no host). Criados antes do primeiro start: sem o arquivo, o Docker cria uma pasta no lugar.
+    volumes:
+      - /root/.claude:/root/.claude
+      - /root/.claude.json:/root/.claude.json
     # O worker herda o healthcheck HTTP da imagem do backend (não há servidor HTTP aqui): substitui por um ping do Celery.
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.core.celery_app:celery_app inspect ping -d celery@$$HOSTNAME -t 5 >/dev/null 2>&1"]
@@ -88,7 +100,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 384M
+          # Sobe em relação ao Ollama antigo: o processo do Claude Code (Node.js) usa mais memória que o worker sozinho.
+          memory: 768M
 
   frontend:
     build:
@@ -138,25 +151,8 @@ services:
         limits:
           memory: 160M
 
-  ollama:
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    environment:
-      # Um modelo por vez e descarregado logo após cada resposta: o limite de memória é o que importa.
-      OLLAMA_NUM_PARALLEL: "1"
-      OLLAMA_MAX_LOADED_MODELS: "1"
-      OLLAMA_KEEP_ALIVE: "0"
-    volumes:
-      - ollama_models:/root/.ollama
-    deploy:
-      resources:
-        limits:
-          # Um modelo de 7B/8B quantizado ocupa ~5 GB ao carregar; 6 GB dá folga para o contexto.
-          memory: 6144M
-
 volumes:
   postgres_data:
   redis_data:
-  ollama_models:
   caddy_data:
   caddy_config:

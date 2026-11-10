@@ -1,1 +1,1 @@
-"""Provedores de IA: Gemini (nuvem) e conselho local (Ollama), com memória semântica e agente PM/PO."""
+"""Provedores de IA: Claude Code CLI (padrão) e Gemini (nuvem), com agente PM/PO."""

@@ -1,12 +1,10 @@
 """Escolha do provedor de IA pela variável ``AI_PROVIDER``.
 
-Esta é a única função que decide entre Gemini e Ollama. O restante do sistema recebe os serviços
-prontos, sem saber de qual provedor eles vieram.
+Esta é a única função que decide entre o Claude Code CLI e o Gemini. O restante do sistema recebe
+os serviços prontos, sem saber de qual provedor eles vieram.
 
-Embeddings (memória semântica) só são ativados no modo ``ollama``: o modelo de embeddings é
-local e gratuito. No modo ``gemini`` a memória fica desligada.
-
-No modo ``ollama``, o agente PM/PO usa o modelo próprio ``OLLAMA_PM_MODEL``, separado do conselho.
+Sem modelo de embeddings disponível no Claude, a memória semântica (pgvector) fica desligada:
+``embedder`` é ``None`` e o parecer PM/PO sai sem histórico.
 """
 
 from __future__ import annotations
@@ -18,8 +16,7 @@ from dataclasses import dataclass
 from app.core.config import Settings
 from app.core.exceptions import AINotConfiguredError
 from app.services.ai.base import AIProvider, TextEmbedder, TextGenerator
-from app.services.ai.consensus import LocalAIConsensusEngine
-from app.services.ai.ollama import OllamaClient, OllamaTextModel
+from app.services.ai.claude_cli_service import ClaudeCliService
 from app.services.ai_service import AIService
 
 
@@ -27,10 +24,10 @@ from app.services.ai_service import AIService
 class AIServices:
     """Serviços de IA do provedor configurado.
 
-    ``provider``: análise técnica dos PRs novos (conselho local ou Gemini).
-    ``backfill_provider``: análise técnica dos PRs históricos (um modelo local só; no Gemini, o mesmo ``provider``).
-    ``pm_generator``: texto do agente PM/PO (modelo próprio, ou o próprio Gemini).
-    ``embedder``: embeddings da memória semântica (só no modo local).
+    ``provider``: análise técnica dos PRs novos.
+    ``backfill_provider``: análise técnica dos PRs históricos (o mesmo ``provider`` nos provedores atuais).
+    ``pm_generator``: texto do agente PM/PO.
+    ``embedder``: embeddings da memória semântica; ``None`` enquanto nenhum provedor oferece embeddings.
     """
 
     provider: AIProvider
@@ -44,26 +41,20 @@ async def open_ai_services(settings: Settings) -> AsyncIterator[AIServices]:
     """Abre os serviços de IA do provedor configurado e os fecha ao sair.
 
     Raises:
-        AINotConfiguredError: Provedor escolhido sem a credencial ou modelos necessários.
+        AINotConfiguredError: Provedor escolhido sem a credencial ou o executável necessário.
     """
-    if settings.ai_provider == "ollama":
+    if settings.ai_provider == "claude_cli":
         if not settings.ai_configured:
-            raise AINotConfiguredError("Nenhum modelo local configurado (OLLAMA_MODELS).")
-        async with OllamaClient(
-            base_url=settings.ollama_base_url,
-            timeout=settings.ollama_timeout_seconds,
-            embedding_model=settings.ollama_embedding_model,
-        ) as client:
-            engine = LocalAIConsensusEngine(client, settings.ollama_model_list, settings.gemini_max_diff_chars)
-            backfill_engine = LocalAIConsensusEngine(
-                client, [settings.ollama_backfill_model], settings.gemini_max_diff_chars
+            raise AINotConfiguredError(
+                f"Claude Code CLI não encontrado no servidor ('{settings.claude_cli_command}')."
             )
-            yield AIServices(
-                provider=engine,
-                backfill_provider=backfill_engine,
-                pm_generator=OllamaTextModel(client, settings.ollama_pm_model),
-                embedder=client,
-            )
+        claude = ClaudeCliService(
+            command=settings.claude_cli_command,
+            model=settings.claude_cli_model,
+            timeout=settings.claude_cli_timeout_seconds,
+            max_diff_chars=settings.claude_max_diff_chars,
+        )
+        yield AIServices(provider=claude, backfill_provider=claude, pm_generator=claude, embedder=None)
         return
 
     api_key = settings.gemini_api_key

@@ -37,8 +37,11 @@ modelos locais definidos no `.env`. Ele pode ser executado de novo para atualiza
 
 ### Limitação de hardware
 
-Em um Droplet pequeno, a IA local (Ollama) roda em CPU e é lenta: uma análise pode levar vários
-minutos. Para velocidade, troque para o Gemini no `.env`: `AI_PROVIDER=gemini` e `GEMINI_API_KEY=...`.
+A IA usa o Claude Code CLI (`AI_PROVIDER=claude_cli`), autenticado com a assinatura do Claude e não com
+chave de API. O login fica salvo no host (`/root/.claude` e `/root/.claude.json`) e é reaproveitado pelo
+backend e pelo worker. Se a sessão expirar, a fila pausa (`AUTH_REQUIRED`) sem descartar PRs; a renovação
+é feita em Configurações > Sistema, ou no servidor com `claude auth login`. Para usar o Gemini, troque para
+`AI_PROVIDER=gemini` e preencha `GEMINI_API_KEY`.
 
 ## Desenvolvimento local
 

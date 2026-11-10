@@ -6,6 +6,7 @@ logs, ``repr`` ou mensagens de erro. ``hide_input_in_errors`` impede que a
 ``DATABASE_URL`` (que contém a senha) seja ecoada em erros de validação.
 """
 
+import shutil
 from functools import lru_cache
 from typing import Literal
 
@@ -60,17 +61,13 @@ class Settings(BaseSettings):
     github_oauth_redirect_uri: str | None = None
     github_oauth_scopes: str = "read:user user:email"
 
-    # Provedor de IA: "gemini" (nuvem, com cota) ou "ollama" (local, custo zero, sem 429).
-    ai_provider: Literal["gemini", "ollama"] = "gemini"
-    ollama_base_url: str = "http://ollama:11434"
-    # Modelos do conselho local, separados por vírgula. Rodam em paralelo (asyncio.gather).
-    ollama_models: str = "qwen2.5-coder:7b,deepseek-r1:8b,llama3.1:8b,mistral:7b,phi3:3.8b,gemma2:9b"
-    # Modelo do agente PM/PO (parecer de produto e consulta à memória). Separado do conselho.
-    ollama_pm_model: str = "llama3.1:8b"
-    # Modelo único da análise histórica (backfill de PRs antigos). Um modelo só evita carregar o conselho inteiro.
-    ollama_backfill_model: str = "llama3.1:8b"
-    ollama_embedding_model: str = "nomic-embed-text"
-    ollama_timeout_seconds: float = Field(default=600.0, gt=0, le=1800)
+    # Provedor de IA: "claude_cli" (Claude Code CLI autenticado no servidor) ou "gemini" (nuvem).
+    ai_provider: Literal["claude_cli", "gemini"] = "claude_cli"
+    # Executável do Claude Code CLI e modelo usado nas análises e no parecer PM/PO.
+    claude_cli_command: str = "claude"
+    claude_cli_model: str = "claude-sonnet-5-5"
+    claude_cli_timeout_seconds: float = Field(default=300.0, gt=0, le=1800)
+    claude_max_diff_chars: int = Field(default=60_000, ge=1_000, le=500_000)
 
     gemini_base_url: str = "https://generativelanguage.googleapis.com"
     gemini_model: str = "gemini-3.5-flash"
@@ -132,15 +129,10 @@ class Settings(BaseSettings):
         return value
 
     @property
-    def ollama_model_list(self) -> list[str]:
-        """Modelos do conselho local, na ordem configurada, sem entradas vazias."""
-        return [model.strip() for model in self.ollama_models.split(",") if model.strip()]
-
-    @property
     def ai_configured(self) -> bool:
-        """A IA está disponível? Com Ollama basta haver modelos; com Gemini, a chave."""
-        if self.ai_provider == "ollama":
-            return bool(self.ollama_model_list)
+        """A IA está disponível? Com Claude CLI, o executável precisa existir; com Gemini, a chave."""
+        if self.ai_provider == "claude_cli":
+            return shutil.which(self.claude_cli_command) is not None
         return self.gemini_api_key is not None
 
     @property

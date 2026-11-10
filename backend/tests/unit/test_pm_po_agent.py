@@ -88,7 +88,7 @@ async def test_history_reaches_the_prompt_sent_to_the_model() -> None:
 
 
 async def test_opinion_still_comes_out_when_embedding_is_unavailable() -> None:
-    """Sem embedding (Ollama fora do ar), o parecer sai mesmo assim, só sem histórico."""
+    """Sem embedding (embedding indisponível), o parecer sai mesmo assim, só sem histórico."""
     provider = FakeProvider()
     memory = FakeMemory([SIMILAR])
     agent = PMPOMasterAgent(

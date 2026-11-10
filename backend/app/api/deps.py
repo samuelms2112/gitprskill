@@ -183,7 +183,7 @@ def get_installation_repository_source() -> InstallationRepositorySource:
 
 
 async def get_ai_service() -> AsyncIterator[AIProvider | None]:
-    """Provedor de IA configurado (Gemini ou conselho local), ou ``None`` se não houver IA.
+    """Provedor de IA configurado (Claude Code CLI ou Gemini), ou ``None`` se não houver IA.
 
     Não lança exceção aqui de propósito: o FastAPI resolve dependências antes de validar
     o corpo, e um erro de configuração mascararia erros de validação do pedido. Quem usa

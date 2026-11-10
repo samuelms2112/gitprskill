@@ -1,6 +1,6 @@
 """Agente PM/PO: gera o parecer de produto de um PR, contextualizado pelo histórico do repositório.
 
-O parecer entra no conselho técnico como ``product_context``: a análise técnica já sabe o que
+O parecer entra na análise técnica como ``product_context``: a análise técnica já sabe o que
 o produto decidiu antes. Se a memória semântica não estiver disponível (modo Gemini, ou falha
 de embedding), o agente ainda gera o parecer a partir do próprio PR, sem histórico.
 """

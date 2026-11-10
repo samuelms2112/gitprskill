@@ -14,7 +14,7 @@ from app.services.ai_service import PullRequestAnalysis
 
 
 class AIProvider(Protocol):
-    """Provedor de análise e geração (Gemini na nuvem, ou o conselho local via Ollama)."""
+    """Provedor de análise e geração (Claude Code CLI, ou Gemini na nuvem)."""
 
     async def analyze_pull_request(
         self,

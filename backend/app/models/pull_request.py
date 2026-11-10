@@ -95,7 +95,7 @@ class PullRequest(Base):
     ai_category: Mapped[AICategory | None] = mapped_column(
         str_enum(AICategory, name="ai_category", length=20)
     )
-    # Parecer de produto (PM/PO) usado como contexto do conselho técnico.
+    # Parecer de produto (PM/PO) usado como contexto da análise técnica.
     ai_product_opinion: Mapped[str | None] = mapped_column(Text)
     # Vetor do resumo para a memória semântica (dimensão do nomic-embed-text).
     ai_embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMENSIONS))

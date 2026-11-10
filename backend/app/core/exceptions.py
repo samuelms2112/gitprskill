@@ -157,6 +157,13 @@ class AIResponseError(AIError):
     code = "ai_invalid_response"
 
 
+class AISessionExpiredError(AIError):
+    """Sessão do Claude Code CLI ausente ou expirada: é preciso refazer o login no servidor."""
+
+    status_code = 503
+    code = "ai_session_expired"
+
+
 class AINotConfiguredError(AppError):
     """Chave da API de IA não configurada no servidor."""
 

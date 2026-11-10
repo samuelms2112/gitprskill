@@ -109,15 +109,24 @@ run_migrations() {
   docker compose -f "${COMPOSE_FILE}" exec -T backend alembic upgrade head
 }
 
-pull_models() {
-  log "Baixando os modelos locais configurados no .env"
-  local models
-  models="$(env_value OLLAMA_MODELS),$(env_value OLLAMA_PM_MODEL),$(env_value OLLAMA_EMBEDDING_MODEL)"
-  # Lista única, sem vazios, na ordem em que aparecem.
-  printf '%s\n' "${models//,/$'\n'}" | sed '/^\s*$/d' | awk '!seen[$0]++' | while read -r model; do
-    echo "ollama pull ${model}"
-    docker compose -f "${COMPOSE_FILE}" exec -T ollama ollama pull "${model}"
-  done
+prepare_claude_login() {
+  # Os volumes do Claude Code precisam existir antes do primeiro start; senão o Docker cria pastas no lugar dos arquivos.
+  log "Pastas de login do Claude Code no host"
+  mkdir -p /root/.claude
+  [[ -f /root/.claude.json ]] || echo '{}' > /root/.claude.json
+  chmod 700 /root/.claude
+  chmod 600 /root/.claude.json
+}
+
+check_claude_login() {
+  log "Sessão do Claude Code"
+  if docker compose -f "${COMPOSE_FILE}" exec -T worker claude auth status >/dev/null 2>&1; then
+    echo "Claude Code autenticado."
+  else
+    echo "AVISO: o Claude Code ainda não está logado. Faça o login no servidor:"
+    echo "  docker compose -f ${COMPOSE_FILE} exec worker claude auth login"
+    echo "Enquanto isso, a fila fica pausada (AUTH_REQUIRED) e nenhum PR é descartado."
+  fi
 }
 
 summary() {
@@ -139,10 +148,11 @@ main() {
   install_docker
   prepare_source
   check_env
+  prepare_claude_login
   start_stack
   wait_healthy "$(docker compose -f "${COMPOSE_FILE}" ps -q backend)"
   run_migrations
-  pull_models
+  check_claude_login
   summary
 }
 

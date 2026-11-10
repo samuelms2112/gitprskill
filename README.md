@@ -43,6 +43,26 @@ backend e pelo worker. Se a sessão expirar, a fila pausa (`AUTH_REQUIRED`) sem 
 é feita em Configurações > Sistema, ou no servidor com `claude auth login`. Para usar o Gemini, troque para
 `AI_PROVIDER=gemini` e preencha `GEMINI_API_KEY`.
 
+## Revisão automática de PRs: comandos
+
+A plataforma revisa cada PR aberto com as regras da skill da empresa e publica o resultado como comentário
+no GitHub. Para pedir uma nova revisão ou falar com o bot, use:
+
+| Como chamar | O que faz |
+|---|---|
+| `/revisar` (no começo de uma linha) | Nova revisão do PR |
+| `/reavaliar` (no começo de uma linha) | Mesmo efeito de `/revisar` |
+| `@pr-insights-samuel` ou `@pr-insights` no texto | Nova revisão, com resposta na conversa |
+| Comentário geral logo depois de uma resposta do bot (até 24 horas) | Nova revisão, sem precisar de menção |
+| Resposta a um comentário em linha que o bot publicou | Nova revisão |
+| Novo push no PR | Nova revisão |
+
+Regras:
+- O comando só vale no começo de uma linha: `/revisar` no meio de uma frase não dispara.
+- Não diferencia maiúsculas: `/REVISAR` funciona.
+- Comentários do próprio bot são ignorados.
+- Entre duas revisões do mesmo PR há um intervalo mínimo de 180 segundos. Um gatilho dentro desse intervalo é descartado.
+
 ## Desenvolvimento local
 
 ```bash

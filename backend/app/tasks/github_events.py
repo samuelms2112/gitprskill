@@ -7,6 +7,7 @@ Payloads inválidos não são reenviados: repetir a mesma entrega não corrigiri
 
 import asyncio
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import redis
@@ -22,12 +23,15 @@ from app.core.logging import configure_logging, get_logger
 from app.models.pull_request import PullRequest
 from app.models.repository import Repository
 from app.services.github_event_processor import GitHubEventProcessor
-from app.services.review_store import bot_comment_ids, request_review
+from app.services.review_store import (
+    bot_comment_ids,
+    bot_recently_active,
+    request_review,
+)
 from app.services.review_trigger import (
     TRIGGER_EVENTS,
     acquire_debounce,
     decide,
-    mentions_bot,
     pr_reference,
 )
 from app.workers.review_tasks import review_pr_task
@@ -79,12 +83,8 @@ async def schedule_reanalysis(
     settings = get_settings()
     if not settings.ai_configured:
         return
-    # Saída antecipada sem consultar o banco: só push ou comentário com menção/resposta pode disparar.
+    # Saída antecipada sem consultar o banco: só push ou comentário pode disparar.
     if event_name == "pull_request" and payload.get("action") != "synchronize":
-        return
-    if event_name != "pull_request" and not mentions_bot(_comment_body(payload), settings.github_app_slug) and (
-        (payload.get("comment") or {}).get("in_reply_to_id") is None
-    ):
         return
     reference = pr_reference(event_name, payload)
     if reference is None:
@@ -104,7 +104,10 @@ async def schedule_reanalysis(
         pull_request_id, tenant_id = int(row[0]), int(row[1])
         known_bot_ids = await bot_comment_ids(session, pull_request_id)
 
-    decision = decide(event_name, payload, settings.github_app_slug, known_bot_ids)
+    since = datetime.now(UTC) - timedelta(hours=settings.pr_bot_thread_window_hours)
+    async with session_factory() as session:
+        recent = await bot_recently_active(session, pull_request_id, since)
+    decision = decide(event_name, payload, settings.github_app_slug, known_bot_ids, recent)
     if decision is None:
         return
 
@@ -228,7 +231,3 @@ def process_github_event(
         run_github_event(event_name=event_name, delivery_id=delivery_id, payload=payload)
     )
 
-
-def _comment_body(payload: Mapping[str, Any]) -> str | None:
-    comment = payload.get("comment")
-    return comment.get("body") if isinstance(comment, dict) else None

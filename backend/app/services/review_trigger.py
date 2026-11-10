@@ -30,6 +30,12 @@ class ReanalysisTrigger(StrEnum):
     SYNCHRONIZE = "synchronize"
     MENTION = "mention"
     THREAD_REPLY = "thread_reply"
+    COMMAND = "command"
+    BOT_THREAD = "bot_thread"
+
+
+# Comando explícito no início de uma linha: "/revisar" ou "/reavaliar".
+COMMAND_PATTERN: Final = re.compile(r"^\s*/(revisar|reavaliar)\b", re.IGNORECASE | re.MULTILINE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,13 +75,24 @@ def decide_pull_request(payload: Mapping[str, Any], app_slug: str) -> TriggerDec
     return _decision(payload, ReanalysisTrigger.SYNCHRONIZE)
 
 
+def has_command(body: str | None) -> bool:
+    """Verdadeiro quando o comentário traz o comando ``/revisar`` ou ``/reavaliar`` no início de uma linha."""
+    return bool(body) and COMMAND_PATTERN.search(body or "") is not None
+
+
 def decide_comment(
     event_name: str,
     payload: Mapping[str, Any],
     app_slug: str,
     bot_comment_ids: frozenset[int],
+    bot_recently_active: bool = False,
 ) -> TriggerDecision | None:
-    """Comentário criado dispara reavaliação quando menciona o bot ou responde a um comentário dele.
+    """Comentário criado dispara reavaliação por uma de quatro vias, nesta ordem:
+
+    1. comando ``/revisar`` ou ``/reavaliar``;
+    2. menção ao bot (``@pr-insights-samuel`` ou ``@pr-insights``);
+    3. resposta a um comentário que a plataforma publicou (review comment);
+    4. comentário geral num PR em que a plataforma falou nas últimas horas (``bot_recently_active``).
 
     ``bot_comment_ids`` são os ids dos comentários que a plataforma já publicou neste PR.
     """
@@ -88,11 +105,15 @@ def decide_comment(
         return None
     comment = payload.get("comment") or {}
     body = comment.get("body")
+    if has_command(body):
+        return _decision(payload, ReanalysisTrigger.COMMAND)
     if mentions_bot(body, app_slug):
         return _decision(payload, ReanalysisTrigger.MENTION)
     parent = comment.get("in_reply_to_id")
     if event_name == REVIEW_COMMENT_EVENT and isinstance(parent, int) and parent in bot_comment_ids:
         return _decision(payload, ReanalysisTrigger.THREAD_REPLY)
+    if event_name == ISSUE_COMMENT_EVENT and bot_recently_active:
+        return _decision(payload, ReanalysisTrigger.BOT_THREAD)
     return None
 
 
@@ -101,12 +122,13 @@ def decide(
     payload: Mapping[str, Any],
     app_slug: str,
     bot_comment_ids: frozenset[int] = frozenset(),
+    bot_recently_active: bool = False,
 ) -> TriggerDecision | None:
     """Ponto de entrada: escolhe a regra de acordo com o evento."""
     if event_name == PULL_REQUEST_EVENT:
         return decide_pull_request(payload, app_slug)
     if event_name in (REVIEW_COMMENT_EVENT, ISSUE_COMMENT_EVENT):
-        return decide_comment(event_name, payload, app_slug, bot_comment_ids)
+        return decide_comment(event_name, payload, app_slug, bot_comment_ids, bot_recently_active)
     return None
 
 

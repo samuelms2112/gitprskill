@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     github_app_slug: str = "pr-insights-samuel"
     # Janela de debounce por PR: no máximo uma reavaliação a cada N segundos.
     pr_review_debounce_seconds: int = Field(default=180, ge=0, le=3600)
+    # Janela em que um comentário geral é tratado como conversa com o bot (depois que ele falou no PR).
+    pr_bot_thread_window_hours: int = Field(default=24, ge=1, le=168)
     github_oauth_scopes: str = "read:user user:email read:org"
 
     # Provedor de IA: "claude_cli" (Claude Code CLI autenticado no servidor) ou "gemini" (nuvem).

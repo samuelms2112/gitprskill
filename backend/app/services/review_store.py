@@ -76,3 +76,15 @@ async def bot_comment_ids(session: AsyncSession, pull_request_id: int) -> frozen
     for values in rows.all():
         ids.update(value for value in values if isinstance(value, int))
     return frozenset(ids)
+
+
+async def bot_recently_active(session: AsyncSession, pull_request_id: int, since: datetime) -> bool:
+    """A plataforma publicou alguma coisa neste PR desde ``since``? Usado na regra de conversa com o bot."""
+    found = await session.scalar(
+        select(PullRequestAIReview.id).where(
+            PullRequestAIReview.pull_request_id == pull_request_id,
+            PullRequestAIReview.created_at >= since,
+            PullRequestAIReview.status == AIReviewStatus.COMPLETED,
+        ).limit(1)
+    )
+    return found is not None
